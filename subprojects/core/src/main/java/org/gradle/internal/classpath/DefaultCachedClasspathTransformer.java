@@ -51,12 +51,12 @@ public class DefaultCachedClasspathTransformer implements CachedClasspathTransfo
 
     @Override
     public ClassPath transform(ClassPath classPath, Usage usage) {
-        return DefaultClassPath.of(CollectionUtils.collect(classPath.getAsFiles(), jarFileTransformer));
+        return cache.useCache(() -> DefaultClassPath.of(CollectionUtils.collect(classPath.getAsFiles(), jarFileTransformer)));
     }
 
     @Override
     public Collection<URL> transform(Collection<URL> urls, Usage usage) {
-        return CollectionUtils.collect(urls, url -> {
+        return cache.useCache(() -> CollectionUtils.collect(urls, url -> {
             if (url.getProtocol().equals("file")) {
                 try {
                     return jarFileTransformer.transform(new File(url.toURI())).toURI().toURL();
@@ -66,7 +66,7 @@ public class DefaultCachedClasspathTransformer implements CachedClasspathTransfo
             } else {
                 return url;
             }
-        });
+        }));
     }
 
     private class CachedJarFileTransformer implements Transformer<File, File> {
@@ -81,7 +81,7 @@ public class DefaultCachedClasspathTransformer implements CachedClasspathTransfo
         @Override
         public File transform(final File original) {
             if (shouldUseFromCache(original)) {
-                return cache.useCache(() -> jarCache.getCachedJar(original, cache.getBaseDir()));
+                return jarCache.getCachedJar(original, cache.getBaseDir());
             }
             return original;
         }
