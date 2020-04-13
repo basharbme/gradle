@@ -21,7 +21,6 @@ import org.gradle.cache.CacheRepository;
 import org.gradle.cache.PersistentCache;
 import org.gradle.internal.UncheckedException;
 import org.gradle.internal.file.FileAccessTimeJournal;
-import org.gradle.internal.file.JarCache;
 import org.gradle.internal.resource.local.FileAccessTracker;
 import org.gradle.internal.vfs.AdditiveCacheLocations;
 import org.gradle.util.CollectionUtils;
@@ -51,12 +50,12 @@ public class DefaultCachedClasspathTransformer implements CachedClasspathTransfo
     }
 
     @Override
-    public ClassPath transform(ClassPath classPath) {
+    public ClassPath transform(ClassPath classPath, Usage usage) {
         return DefaultClassPath.of(CollectionUtils.collect(classPath.getAsFiles(), jarFileTransformer));
     }
 
     @Override
-    public Collection<URL> transform(Collection<URL> urls) {
+    public Collection<URL> transform(Collection<URL> urls, Usage usage) {
         return CollectionUtils.collect(urls, url -> {
             if (url.getProtocol().equals("file")) {
                 try {
