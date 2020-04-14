@@ -21,8 +21,8 @@ import org.gradle.cache.PersistentCache;
 import org.gradle.internal.UncheckedException;
 import org.gradle.internal.file.FileAccessTimeJournal;
 import org.gradle.internal.file.FileType;
-import org.gradle.internal.hash.HashCode;
 import org.gradle.internal.resource.local.FileAccessTracker;
+import org.gradle.internal.snapshot.CompleteFileSystemLocationSnapshot;
 import org.gradle.internal.vfs.VirtualFileSystem;
 import org.gradle.util.GFileUtils;
 
@@ -101,7 +101,6 @@ public class DefaultCachedClasspathTransformer implements CachedClasspathTransfo
         if (shouldUseFromCache(original)) {
             File result = getCachedJar(usage, original, cache.getBaseDir());
             if (result != null) {
-                fileAccessTracker.markAccessed(result);
                 dest.accept(result);
             }
         } else if (original.exists()) {
@@ -111,33 +110,31 @@ public class DefaultCachedClasspathTransformer implements CachedClasspathTransfo
 
     @Nullable
     public File getCachedJar(CachedClasspathTransformer.Usage usage, File original, File cacheDir) {
-        HashCode hashValue = virtualFileSystem.read(original.getAbsolutePath(), snapshot -> {
-            if (snapshot.getType() == FileType.Missing) {
-                return null;
-            }
-            if (snapshot.getType() == FileType.Directory && usage == Usage.Other) {
-                return null;
-            }
-            return snapshot.getHash();
-        });
-        if (hashValue == null) {
+        CompleteFileSystemLocationSnapshot snapshot = virtualFileSystem.read(original.getAbsolutePath(), s -> s);
+        if (snapshot.getType() == FileType.Missing) {
             return null;
         }
         if (usage == CachedClasspathTransformer.Usage.BuildLogic) {
-            File transformed = new File(cacheDir, hashValue.toString() + '/' + original.getName());
+            String name = snapshot.getType() == FileType.Directory ? original.getName() + ".jar" : original.getName();
+            File transformed = new File(cacheDir, snapshot.getHash().toString() + '/' + name);
             if (!transformed.isFile()) {
                 // Unpack and rebuild the jar. Later, this will apply some transformations to the classes
                 classpathBuilder.jar(transformed, builder -> classpathWalker.visit(original, entry -> {
                     builder.put(entry.getName(), entry.getContent());
                 }));
             }
+            fileAccessTracker.markAccessed(transformed);
             return transformed;
         } else if (usage == CachedClasspathTransformer.Usage.Other) {
-            File cachedFile = new File(cacheDir, "o_" + hashValue.toString() + '/' + original.getName());
+            if (snapshot.getType() != FileType.RegularFile) {
+                return original;
+            }
+            File cachedFile = new File(cacheDir, "o_" + snapshot.getHash().toString() + '/' + original.getName());
             if (!cachedFile.isFile()) {
                 // Just copy the jar
                 GFileUtils.copyFile(original, cachedFile);
             }
+            fileAccessTracker.markAccessed(cachedFile);
             return cachedFile;
         } else {
             throw new IllegalArgumentException(String.format("Unknown usage %s", usage));

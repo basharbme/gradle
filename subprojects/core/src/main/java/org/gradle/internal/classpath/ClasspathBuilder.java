@@ -25,6 +25,7 @@ import java.io.BufferedOutputStream;
 import java.io.File;
 import java.io.FileOutputStream;
 import java.io.IOException;
+import java.nio.file.Files;
 import java.util.zip.ZipEntry;
 import java.util.zip.ZipOutputStream;
 
@@ -36,23 +37,26 @@ public class ClasspathBuilder {
         try {
             buildJar(jarFile, action);
         } catch (Exception e) {
-            throw new GradleException(String.format("Failed to create %s.", jarFile));
+            throw new GradleException(String.format("Failed to create %s.", jarFile), e);
         }
     }
 
     private void buildJar(File jarFile, Action action) throws IOException {
         File tmpFile = tempFileFor(jarFile);
-        try (ZipOutputStream outputStream = new ZipOutputStream(new BufferedOutputStream(new FileOutputStream(tmpFile), BUFFER_SIZE))) {
-            outputStream.setLevel(0);
-            action.execute(new ZipEntryBuilder(outputStream));
+        try {
+            try (ZipOutputStream outputStream = new ZipOutputStream(new BufferedOutputStream(new FileOutputStream(tmpFile), BUFFER_SIZE))) {
+                outputStream.setLevel(0);
+                action.execute(new ZipEntryBuilder(outputStream));
+            }
+            Files.deleteIfExists(jarFile.toPath());
+            GFileUtils.moveFile(tmpFile, jarFile);
+        } finally {
+            Files.deleteIfExists(tmpFile.toPath());
         }
-        GFileUtils.moveFile(tmpFile, jarFile);
     }
 
     private File tempFileFor(File outputJar) throws IOException {
-        final File tmpFile = File.createTempFile(outputJar.getName(), ".tmp");
-        tmpFile.deleteOnExit();
-        return tmpFile;
+        return File.createTempFile(outputJar.getName(), ".tmp");
     }
 
     public interface Action {
