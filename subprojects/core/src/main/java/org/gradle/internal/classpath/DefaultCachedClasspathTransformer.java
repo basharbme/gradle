@@ -20,9 +20,13 @@ import org.gradle.cache.CacheRepository;
 import org.gradle.cache.PersistentCache;
 import org.gradle.internal.UncheckedException;
 import org.gradle.internal.file.FileAccessTimeJournal;
+import org.gradle.internal.file.FileType;
+import org.gradle.internal.hash.HashCode;
 import org.gradle.internal.resource.local.FileAccessTracker;
 import org.gradle.internal.vfs.VirtualFileSystem;
+import org.gradle.util.GFileUtils;
 
+import javax.annotation.Nullable;
 import java.io.Closeable;
 import java.io.File;
 import java.net.MalformedURLException;
@@ -37,7 +41,9 @@ public class DefaultCachedClasspathTransformer implements CachedClasspathTransfo
 
     private final PersistentCache cache;
     private final FileAccessTracker fileAccessTracker;
-    private final JarCache jarCache;
+    private final VirtualFileSystem virtualFileSystem;
+    private final ClasspathWalker classpathWalker;
+    private final ClasspathBuilder classpathBuilder;
 
     public DefaultCachedClasspathTransformer(
         CacheRepository cacheRepository,
@@ -47,9 +53,11 @@ public class DefaultCachedClasspathTransformer implements CachedClasspathTransfo
         ClasspathBuilder classpathBuilder,
         VirtualFileSystem virtualFileSystem
     ) {
+        this.classpathWalker = classpathWalker;
+        this.classpathBuilder = classpathBuilder;
+        this.virtualFileSystem = virtualFileSystem;
         this.cache = classpathTransformerCacheFactory.createCache(cacheRepository, fileAccessTimeJournal);
-        fileAccessTracker = classpathTransformerCacheFactory.createFileAccessTracker(fileAccessTimeJournal);
-        jarCache = new JarCache(virtualFileSystem, classpathWalker, classpathBuilder);
+        this.fileAccessTracker = classpathTransformerCacheFactory.createFileAccessTracker(fileAccessTimeJournal);
     }
 
     @Override
@@ -91,13 +99,48 @@ public class DefaultCachedClasspathTransformer implements CachedClasspathTransfo
 
     private void cached(File original, Usage usage, Consumer<File> dest) {
         if (shouldUseFromCache(original)) {
-            File result = jarCache.getCachedJar(usage, original, cache.getBaseDir());
+            File result = getCachedJar(usage, original, cache.getBaseDir());
             if (result != null) {
                 fileAccessTracker.markAccessed(result);
                 dest.accept(result);
             }
         } else if (original.exists()) {
             dest.accept(original);
+        }
+    }
+
+    @Nullable
+    public File getCachedJar(CachedClasspathTransformer.Usage usage, File original, File cacheDir) {
+        HashCode hashValue = virtualFileSystem.read(original.getAbsolutePath(), snapshot -> {
+            if (snapshot.getType() == FileType.Missing) {
+                return null;
+            }
+            if (snapshot.getType() == FileType.Directory && usage == Usage.Other) {
+                return null;
+            }
+            return snapshot.getHash();
+        });
+        if (hashValue == null) {
+            return null;
+        }
+        if (usage == CachedClasspathTransformer.Usage.BuildLogic) {
+            File transformed = new File(cacheDir, hashValue.toString() + '/' + original.getName());
+            if (!transformed.isFile()) {
+                // Unpack and rebuild the jar. Later, this will apply some transformations to the classes
+                classpathBuilder.jar(transformed, builder -> classpathWalker.visit(original, entry -> {
+                    builder.put(entry.getName(), entry.getContent());
+                }));
+            }
+            return transformed;
+        } else if (usage == CachedClasspathTransformer.Usage.Other) {
+            File cachedFile = new File(cacheDir, "o_" + hashValue.toString() + '/' + original.getName());
+            if (!cachedFile.isFile()) {
+                // Just copy the jar
+                GFileUtils.copyFile(original, cachedFile);
+            }
+            return cachedFile;
+        } else {
+            throw new IllegalArgumentException(String.format("Unknown usage %s", usage));
         }
     }
 
