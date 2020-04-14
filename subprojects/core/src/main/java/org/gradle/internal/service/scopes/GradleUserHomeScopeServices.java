@@ -57,7 +57,6 @@ import org.gradle.internal.execution.timeout.TimeoutHandler;
 import org.gradle.internal.execution.timeout.impl.DefaultTimeoutHandler;
 import org.gradle.internal.file.FileAccessTimeJournal;
 import org.gradle.internal.hash.ClassLoaderHierarchyHasher;
-import org.gradle.internal.hash.FileHasher;
 import org.gradle.internal.id.LongIdGenerator;
 import org.gradle.internal.jvm.JavaModuleDetector;
 import org.gradle.internal.jvm.inspection.JvmVersionDetector;
@@ -148,11 +147,10 @@ public class GradleUserHomeScopeServices extends WorkerSharedUserHomeScopeServic
     }
 
     CachedClasspathTransformer createCachedClasspathTransformer(
-        AdditiveCacheLocations additiveCacheLocations,
         CacheRepository cacheRepository,
         ClasspathTransformerCacheFactory classpathTransformerCacheFactory,
         FileAccessTimeJournal fileAccessTimeJournal,
-        FileHasher fileHasher,
+        VirtualFileSystem virtualFileSystem,
         ClasspathWalker classpathWalker,
         ClasspathBuilder classpathBuilder
     ) {
@@ -160,11 +158,9 @@ public class GradleUserHomeScopeServices extends WorkerSharedUserHomeScopeServic
             cacheRepository,
             classpathTransformerCacheFactory,
             fileAccessTimeJournal,
-            fileHasher,
             classpathWalker,
             classpathBuilder,
-            additiveCacheLocations
-        );
+            virtualFileSystem);
     }
 
     WorkerProcessFactory createWorkerProcessFactory(LoggingManagerInternal loggingManagerInternal, MessagingServer messagingServer, ClassPathRegistry classPathRegistry,

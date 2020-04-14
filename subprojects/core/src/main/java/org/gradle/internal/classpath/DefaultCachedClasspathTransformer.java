@@ -20,9 +20,8 @@ import org.gradle.cache.CacheRepository;
 import org.gradle.cache.PersistentCache;
 import org.gradle.internal.UncheckedException;
 import org.gradle.internal.file.FileAccessTimeJournal;
-import org.gradle.internal.hash.FileHasher;
 import org.gradle.internal.resource.local.FileAccessTracker;
-import org.gradle.internal.vfs.AdditiveCacheLocations;
+import org.gradle.internal.vfs.VirtualFileSystem;
 
 import java.io.Closeable;
 import java.io.File;
@@ -32,27 +31,25 @@ import java.net.URL;
 import java.util.ArrayList;
 import java.util.Collection;
 import java.util.List;
+import java.util.function.Consumer;
 
 public class DefaultCachedClasspathTransformer implements CachedClasspathTransformer, Closeable {
 
     private final PersistentCache cache;
     private final FileAccessTracker fileAccessTracker;
     private final JarCache jarCache;
-    private final AdditiveCacheLocations additiveCacheLocations;
 
     public DefaultCachedClasspathTransformer(
         CacheRepository cacheRepository,
         ClasspathTransformerCacheFactory classpathTransformerCacheFactory,
         FileAccessTimeJournal fileAccessTimeJournal,
-        FileHasher fileHasher,
         ClasspathWalker classpathWalker,
         ClasspathBuilder classpathBuilder,
-        AdditiveCacheLocations additiveCacheLocations
+        VirtualFileSystem virtualFileSystem
     ) {
-        this.additiveCacheLocations = additiveCacheLocations;
         this.cache = classpathTransformerCacheFactory.createCache(cacheRepository, fileAccessTimeJournal);
         fileAccessTracker = classpathTransformerCacheFactory.createFileAccessTracker(fileAccessTimeJournal);
-        jarCache = new JarCache(fileHasher, classpathWalker, classpathBuilder);
+        jarCache = new JarCache(virtualFileSystem, classpathWalker, classpathBuilder);
     }
 
     @Override
@@ -61,7 +58,7 @@ public class DefaultCachedClasspathTransformer implements CachedClasspathTransfo
             List<File> originalFiles = classPath.getAsFiles();
             List<File> cachedFiles = new ArrayList<>(originalFiles.size());
             for (File file : originalFiles) {
-                cachedFiles.add(cached(file, usage));
+                cached(file, usage, cachedFiles::add);
             }
             return DefaultClassPath.of(cachedFiles);
         });
@@ -74,8 +71,14 @@ public class DefaultCachedClasspathTransformer implements CachedClasspathTransfo
             for (URL url : urls) {
                 if (url.getProtocol().equals("file")) {
                     try {
-                        cachedFiles.add(cached(new File(url.toURI()), usage).toURI().toURL());
-                    } catch (URISyntaxException | MalformedURLException e) {
+                        cached(new File(url.toURI()), usage, f -> {
+                            try {
+                                cachedFiles.add(f.toURI().toURL());
+                            } catch (MalformedURLException e) {
+                                throw UncheckedException.throwAsUncheckedException(e);
+                            }
+                        });
+                    } catch (URISyntaxException e) {
                         throw UncheckedException.throwAsUncheckedException(e);
                     }
                 } else {
@@ -86,13 +89,15 @@ public class DefaultCachedClasspathTransformer implements CachedClasspathTransfo
         });
     }
 
-    private File cached(File original, Usage usage) {
+    private void cached(File original, Usage usage, Consumer<File> dest) {
         if (shouldUseFromCache(original)) {
             File result = jarCache.getCachedJar(usage, original, cache.getBaseDir());
-            fileAccessTracker.markAccessed(result);
-            return result;
-        } else {
-            return original;
+            if (result != null) {
+                fileAccessTracker.markAccessed(result);
+                dest.accept(result);
+            }
+        } else if (original.exists()) {
+            dest.accept(original);
         }
     }
 

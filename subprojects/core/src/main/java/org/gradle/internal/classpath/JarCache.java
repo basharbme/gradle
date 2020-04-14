@@ -16,19 +16,21 @@
 
 package org.gradle.internal.classpath;
 
-import org.gradle.internal.hash.FileHasher;
 import org.gradle.internal.hash.HashCode;
+import org.gradle.internal.snapshot.CompleteFileSystemLocationSnapshot;
+import org.gradle.internal.vfs.VirtualFileSystem;
 import org.gradle.util.GFileUtils;
 
+import javax.annotation.Nullable;
 import java.io.File;
 
 public class JarCache {
-    private final FileHasher fileHasher;
     private final ClasspathWalker classpathWalker;
     private final ClasspathBuilder classpathBuilder;
+    private final VirtualFileSystem virtualFileSystem;
 
-    public JarCache(FileHasher fileHasher, ClasspathWalker classpathWalker, ClasspathBuilder classpathBuilder) {
-        this.fileHasher = fileHasher;
+    public JarCache(VirtualFileSystem virtualFileSystem, ClasspathWalker classpathWalker, ClasspathBuilder classpathBuilder) {
+        this.virtualFileSystem = virtualFileSystem;
         this.classpathWalker = classpathWalker;
         this.classpathBuilder = classpathBuilder;
     }
@@ -36,26 +38,31 @@ public class JarCache {
     /**
      * Returns a cached copy of the given file. The cached copy is guaranteed to not be modified or removed.
      */
+    @Nullable
     public File getCachedJar(CachedClasspathTransformer.Usage usage, File original, File cacheDir) {
-        HashCode hashValue = fileHasher.hash(original);
-        File cachedFile;
+        HashCode hashValue = virtualFileSystem.read(original.getAbsolutePath(), CompleteFileSystemLocationSnapshot::getHash);
         if (usage == CachedClasspathTransformer.Usage.BuildLogic) {
-            cachedFile = new File(cacheDir, hashValue.toString() + '/' + original.getName());
-            if (!cachedFile.isFile()) {
+            File transformed = new File(cacheDir, hashValue.toString() + '/' + original.getName());
+            if (!transformed.isFile()) {
                 // Unpack and rebuild the jar. Later, this will apply some transformations to the classes
-                classpathBuilder.jar(cachedFile, builder -> classpathWalker.visit(original, entry -> {
+                classpathBuilder.jar(transformed, builder -> classpathWalker.visit(original, entry -> {
                     builder.put(entry.getName(), entry.getContent());
                 }));
             }
+            return transformed;
         } else if (usage == CachedClasspathTransformer.Usage.Other) {
-            cachedFile = new File(cacheDir, "o_" + hashValue.toString() + '/' + original.getName());
+            // TODO - reuse information from the VFS read above
+            if (!original.isFile()) {
+                return original;
+            }
+            File cachedFile = new File(cacheDir, "o_" + hashValue.toString() + '/' + original.getName());
             if (!cachedFile.isFile()) {
                 // Just copy the jar
                 GFileUtils.copyFile(original, cachedFile);
             }
+            return cachedFile;
         } else {
             throw new IllegalArgumentException(String.format("Unknown usage %s", usage));
         }
-        return cachedFile;
     }
 }
