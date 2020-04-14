@@ -160,6 +160,7 @@ public class GradleUserHomeScopeServices extends WorkerSharedUserHomeScopeServic
             cacheRepository,
             classpathTransformerCacheFactory,
             fileAccessTimeJournal,
+            fileHasher,
             classpathWalker,
             classpathBuilder,
             additiveCacheLocations
