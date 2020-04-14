@@ -20,25 +20,41 @@ import org.gradle.internal.hash.FileHasher;
 import org.gradle.internal.hash.HashCode;
 import org.gradle.util.GFileUtils;
 
-import javax.annotation.concurrent.ThreadSafe;
 import java.io.File;
 
-@ThreadSafe
 public class JarCache {
     private final FileHasher fileHasher;
+    private final ClasspathWalker classpathWalker;
+    private final ClasspathBuilder classpathBuilder;
 
-    public JarCache(FileHasher fileHasher) {
+    public JarCache(FileHasher fileHasher, ClasspathWalker classpathWalker, ClasspathBuilder classpathBuilder) {
         this.fileHasher = fileHasher;
+        this.classpathWalker = classpathWalker;
+        this.classpathBuilder = classpathBuilder;
     }
 
     /**
      * Returns a cached copy of the given file. The cached copy is guaranteed to not be modified or removed.
      */
-    public File getCachedJar(File original, File cacheDir) {
+    public File getCachedJar(CachedClasspathTransformer.Usage usage, File original, File cacheDir) {
         HashCode hashValue = fileHasher.hash(original);
-        File cachedFile = new File(cacheDir, hashValue.toString() + '/' + original.getName());
-        if (!cachedFile.isFile()) {
-            GFileUtils.copyFile(original, cachedFile);
+        File cachedFile;
+        if (usage == CachedClasspathTransformer.Usage.BuildLogic) {
+            cachedFile = new File(cacheDir, hashValue.toString() + '/' + original.getName());
+            if (!cachedFile.isFile()) {
+                // Unpack and rebuild the jar. Later, this will apply some transformations to the classes
+                classpathBuilder.jar(cachedFile, builder -> classpathWalker.visit(original, entry -> {
+                    builder.put(entry.getName(), entry.getContent());
+                }));
+            }
+        } else if (usage == CachedClasspathTransformer.Usage.Other) {
+            cachedFile = new File(cacheDir, "o_" + hashValue.toString() + '/' + original.getName());
+            if (!cachedFile.isFile()) {
+                // Just copy the jar
+                GFileUtils.copyFile(original, cachedFile);
+            }
+        } else {
+            throw new IllegalArgumentException(String.format("Unknown usage %s", usage));
         }
         return cachedFile;
     }

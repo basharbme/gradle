@@ -46,11 +46,11 @@ import org.gradle.internal.classloader.ClasspathHasher;
 import org.gradle.internal.classloader.DefaultHashingClassLoaderFactory;
 import org.gradle.internal.classloader.HashingClassLoaderFactory;
 import org.gradle.internal.classpath.CachedClasspathTransformer;
+import org.gradle.internal.classpath.ClasspathBuilder;
 import org.gradle.internal.classpath.ClasspathTransformerCacheFactory;
 import org.gradle.internal.classpath.ClasspathWalker;
 import org.gradle.internal.classpath.DefaultCachedClasspathTransformer;
 import org.gradle.internal.classpath.DefaultClasspathTransformerCacheFactory;
-import org.gradle.internal.classpath.JarCache;
 import org.gradle.internal.concurrent.ExecutorFactory;
 import org.gradle.internal.event.ListenerManager;
 import org.gradle.internal.execution.timeout.TimeoutHandler;
@@ -95,6 +95,7 @@ public class GradleUserHomeScopeServices extends WorkerSharedUserHomeScopeServic
         registration.addProvider(new CacheRepositoryServices(userHomeDir, null));
         registration.addProvider(new GradleUserHomeCleanupServices());
         registration.add(ClasspathWalker.class);
+        registration.add(ClasspathBuilder.class);
         for (PluginServiceRegistry plugin : globalServices.getAll(PluginServiceRegistry.class)) {
             plugin.registerGradleUserHomeServices(registration);
         }
@@ -151,13 +152,16 @@ public class GradleUserHomeScopeServices extends WorkerSharedUserHomeScopeServic
         CacheRepository cacheRepository,
         ClasspathTransformerCacheFactory classpathTransformerCacheFactory,
         FileAccessTimeJournal fileAccessTimeJournal,
-        FileHasher fileHasher
+        FileHasher fileHasher,
+        ClasspathWalker classpathWalker,
+        ClasspathBuilder classpathBuilder
     ) {
         return new DefaultCachedClasspathTransformer(
             cacheRepository,
             classpathTransformerCacheFactory,
             fileAccessTimeJournal,
-            new JarCache(fileHasher),
+            classpathWalker,
+            classpathBuilder,
             additiveCacheLocations
         );
     }

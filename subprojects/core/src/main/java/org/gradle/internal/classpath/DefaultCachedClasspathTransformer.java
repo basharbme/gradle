@@ -16,101 +16,89 @@
 
 package org.gradle.internal.classpath;
 
-import org.gradle.api.Transformer;
 import org.gradle.cache.CacheRepository;
 import org.gradle.cache.PersistentCache;
 import org.gradle.internal.UncheckedException;
 import org.gradle.internal.file.FileAccessTimeJournal;
+import org.gradle.internal.hash.FileHasher;
 import org.gradle.internal.resource.local.FileAccessTracker;
 import org.gradle.internal.vfs.AdditiveCacheLocations;
-import org.gradle.util.CollectionUtils;
 
 import java.io.Closeable;
 import java.io.File;
 import java.net.MalformedURLException;
 import java.net.URISyntaxException;
 import java.net.URL;
+import java.util.ArrayList;
 import java.util.Collection;
+import java.util.List;
 
 public class DefaultCachedClasspathTransformer implements CachedClasspathTransformer, Closeable {
 
     private final PersistentCache cache;
-    private final Transformer<File, File> jarFileTransformer;
+    private final FileAccessTracker fileAccessTracker;
+    private final JarCache jarCache;
+    private final AdditiveCacheLocations additiveCacheLocations;
 
     public DefaultCachedClasspathTransformer(
         CacheRepository cacheRepository,
         ClasspathTransformerCacheFactory classpathTransformerCacheFactory,
         FileAccessTimeJournal fileAccessTimeJournal,
-        JarCache jarCache,
+        FileHasher fileHasher,
+        ClasspathWalker classpathWalker,
+        ClasspathBuilder classpathBuilder,
         AdditiveCacheLocations additiveCacheLocations
     ) {
+        this.additiveCacheLocations = additiveCacheLocations;
         this.cache = classpathTransformerCacheFactory.createCache(cacheRepository, fileAccessTimeJournal);
-        FileAccessTracker fileAccessTracker = classpathTransformerCacheFactory.createFileAccessTracker(fileAccessTimeJournal);
-        this.jarFileTransformer = new FileAccessTrackingJarFileTransformer(new CachedJarFileTransformer(jarCache, additiveCacheLocations), fileAccessTracker);
+        fileAccessTracker = classpathTransformerCacheFactory.createFileAccessTracker(fileAccessTimeJournal);
+        jarCache = new JarCache(fileHasher, classpathWalker, classpathBuilder);
     }
 
     @Override
     public ClassPath transform(ClassPath classPath, Usage usage) {
-        return cache.useCache(() -> DefaultClassPath.of(CollectionUtils.collect(classPath.getAsFiles(), jarFileTransformer)));
+        return cache.useCache(() -> {
+            List<File> originalFiles = classPath.getAsFiles();
+            List<File> cachedFiles = new ArrayList<>(originalFiles.size());
+            for (File file : originalFiles) {
+                cachedFiles.add(cached(file, usage));
+            }
+            return DefaultClassPath.of(cachedFiles);
+        });
     }
 
     @Override
     public Collection<URL> transform(Collection<URL> urls, Usage usage) {
-        return cache.useCache(() -> CollectionUtils.collect(urls, url -> {
-            if (url.getProtocol().equals("file")) {
-                try {
-                    return jarFileTransformer.transform(new File(url.toURI())).toURI().toURL();
-                } catch (URISyntaxException | MalformedURLException e) {
-                    throw UncheckedException.throwAsUncheckedException(e);
+        return cache.useCache(() -> {
+            List<URL> cachedFiles = new ArrayList<>(urls.size());
+            for (URL url : urls) {
+                if (url.getProtocol().equals("file")) {
+                    try {
+                        cachedFiles.add(cached(new File(url.toURI()), usage).toURI().toURL());
+                    } catch (URISyntaxException | MalformedURLException e) {
+                        throw UncheckedException.throwAsUncheckedException(e);
+                    }
+                } else {
+                    cachedFiles.add(url);
                 }
-            } else {
-                return url;
             }
-        }));
+            return cachedFiles;
+        });
     }
 
-    private class CachedJarFileTransformer implements Transformer<File, File> {
-        private final JarCache jarCache;
-        private final AdditiveCacheLocations additiveCacheLocations;
-
-        CachedJarFileTransformer(JarCache jarCache, AdditiveCacheLocations additiveCacheLocations) {
-            this.jarCache = jarCache;
-            this.additiveCacheLocations = additiveCacheLocations;
-        }
-
-        @Override
-        public File transform(final File original) {
-            if (shouldUseFromCache(original)) {
-                return jarCache.getCachedJar(original, cache.getBaseDir());
-            }
-            return original;
-        }
-
-        private boolean shouldUseFromCache(File original) {
-            if (!original.isFile()) {
-                return false;
-            }
-            String absolutePath = original.getAbsolutePath();
-            return !additiveCacheLocations.isInsideAdditiveCache(absolutePath);
-        }
-    }
-
-    private static class FileAccessTrackingJarFileTransformer implements Transformer<File, File> {
-
-        private final Transformer<File, File> delegate;
-        private final FileAccessTracker fileAccessTracker;
-
-        FileAccessTrackingJarFileTransformer(Transformer<File, File> delegate, FileAccessTracker fileAccessTracker) {
-            this.delegate = delegate;
-            this.fileAccessTracker = fileAccessTracker;
-        }
-
-        @Override
-        public File transform(File file) {
-            File result = delegate.transform(file);
+    private File cached(File original, Usage usage) {
+        if (shouldUseFromCache(original)) {
+            File result = jarCache.getCachedJar(usage, original, cache.getBaseDir());
             fileAccessTracker.markAccessed(result);
             return result;
+        } else {
+            return original;
         }
+    }
+
+    private boolean shouldUseFromCache(File original) {
+        // Transform everything that has not already been transformed
+        return !original.toPath().startsWith(cache.getBaseDir().toPath());
     }
 
     @Override
