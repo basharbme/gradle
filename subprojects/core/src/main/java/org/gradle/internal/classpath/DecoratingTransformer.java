@@ -43,8 +43,8 @@ public class DecoratingTransformer {
         classpathBuilder.jar(dest, builder -> classpathWalker.visit(source, entry -> {
             if (entry.getName().endsWith(".class")) {
                 ClassReader reader = new ClassReader(entry.getContent());
-                ClassWriter classWriter = new ClassWriter(ClassWriter.COMPUTE_FRAMES);
-                reader.accept(new InstrumentingVisitor(classWriter), ClassReader.EXPAND_FRAMES);
+                ClassWriter classWriter = new ClassWriter(ClassWriter.COMPUTE_MAXS);
+                reader.accept(new InstrumentingVisitor(classWriter), 0);
                 byte[] bytes = classWriter.toByteArray();
                 builder.put(entry.getName(), bytes);
             } else {
@@ -53,9 +53,9 @@ public class DecoratingTransformer {
         }));
     }
 
-    // Called by generated code
+    // Called by generated code. This will move somewhere else
     public static String systemProperty(String key, String consumer) {
-        System.out.println(String.format("=> get property %s from %s", key, consumer));
+        System.out.println(String.format("=> get property '%s' from %s", key, consumer));
         return System.getProperty(key);
     }
 

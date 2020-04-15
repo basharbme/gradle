@@ -37,7 +37,6 @@ class InstantExecutionUndeclaredBuildInputsIntegrationTest extends AbstractInsta
 
         when:
         instantRun()
-        instantRun()
 
         then:
         outputContains("=> get property 'CI' from SneakyPlugin")
