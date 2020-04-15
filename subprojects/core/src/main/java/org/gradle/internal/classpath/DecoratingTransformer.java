@@ -47,7 +47,9 @@ public class DecoratingTransformer {
                 reader.accept(new InstrumentingVisitor(classWriter), 0);
                 byte[] bytes = classWriter.toByteArray();
                 builder.put(entry.getName(), bytes);
-            } else {
+            } else if (!entry.getName().equals("META-INF/MANIFEST.MF")) {
+                // Discard the manifest
+                // TODO - filter the manifest to remove digests for instrumented classes
                 builder.put(entry.getName(), entry.getContent());
             }
         }));
