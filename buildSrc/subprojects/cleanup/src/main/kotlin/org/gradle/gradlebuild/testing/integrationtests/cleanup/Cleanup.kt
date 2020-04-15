@@ -93,7 +93,7 @@ fun FileSystemOperations.removeTransformDir(cachesDir: File) {
 fun FileSystemOperations.removeJarsDir(cachesDir: File) {
     if (cachesDir.isDirectory) {
         cachesDir.listFiles()
-            .filter { it.isDirectory && it.name.startsWith("jars-") }
+            .filter { it.isDirectory && it.name == "jars-4" }
             .forEach { jarsDir ->
                 println("Removing jars directory : $jarsDir")
                 delete { delete(jarsDir) }
