@@ -31,6 +31,9 @@ import org.gradle.instantexecution.fingerprint.InstantExecutionCacheFingerprintC
 import org.gradle.instantexecution.fingerprint.InvalidationReason
 import org.gradle.instantexecution.initialization.InstantExecutionStartParameter
 import org.gradle.instantexecution.problems.InstantExecutionProblems
+import org.gradle.instantexecution.problems.PropertyProblem
+import org.gradle.instantexecution.problems.PropertyTrace
+import org.gradle.instantexecution.problems.StructuredMessage
 import org.gradle.instantexecution.serialization.DefaultReadContext
 import org.gradle.instantexecution.serialization.DefaultWriteContext
 import org.gradle.instantexecution.serialization.IsolateOwner
@@ -48,6 +51,7 @@ import org.gradle.instantexecution.serialization.writeCollection
 import org.gradle.instantexecution.serialization.writeFile
 import org.gradle.internal.Factory
 import org.gradle.internal.build.event.BuildEventListenerRegistryInternal
+import org.gradle.internal.classpath.Instrumented
 import org.gradle.internal.operations.BuildOperationExecutor
 import org.gradle.internal.serialize.Decoder
 import org.gradle.internal.serialize.Encoder
@@ -130,6 +134,15 @@ class DefaultInstantExecution internal constructor(
         if (!isInstantExecutionEnabled) return
 
         startCollectingCacheFingerprint()
+        Instrumented.setListener { key, consumer ->
+            val message = StructuredMessage.build {
+                text("Read system property '")
+                text(key)
+                text("' from ")
+                reference(consumer)
+            }
+            problems.onProblem(PropertyProblem(PropertyTrace.Unknown, message))
+        }
     }
 
     override fun saveScheduledWork() {
@@ -142,6 +155,7 @@ class DefaultInstantExecution internal constructor(
         }
 
         stopCollectingCacheFingerprint()
+        Instrumented.discardListener()
 
         buildOperationExecutor.withStoreOperation {
 

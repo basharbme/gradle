@@ -16,29 +16,68 @@
 
 package org.gradle.instantexecution
 
+import org.gradle.api.Action
 import org.gradle.api.Plugin
 import org.gradle.api.Project
+import org.gradle.api.Task
 
 class InstantExecutionUndeclaredBuildInputsIntegrationTest extends AbstractInstantExecutionIntegrationTest {
-    def "reports undeclared use of system property from buildSrc plugin with Java implementation"() {
+    def "reports undeclared use of system property prior to task execution from buildSrc plugin with Java implementation"() {
         file("buildSrc/src/main/java/SneakyPlugin.java") << """
+            import ${Action.name};
             import ${Project.name};
             import ${Plugin.name};
+            import ${Task.name};
 
             public class SneakyPlugin implements Plugin<Project> {
                 public void apply(Project project) {
-                    String isCi = System.getProperty("CI");
+                    String ci = System.getProperty("CI");
+                    System.out.println("apply CI = " + ci);
+                    project.getTasks().register("thing", t -> {
+                        t.doLast(new Action<Task>() {
+                            public void execute(Task t) {
+                                String ci2 = System.getProperty("CI");
+                                System.out.println("task CI = " + ci2);
+                            }
+                        });
+                    });
                 }
             }
         """
         buildFile << """
             apply plugin: SneakyPlugin
         """
+        def fixture = newInstantExecutionFixture()
 
         when:
-        instantRun()
+        run("thing")
 
         then:
-        outputContains("=> get property 'CI' from SneakyPlugin")
+        outputContains("apply CI = null")
+        outputContains("task CI = null")
+
+        when:
+        instantFails("thing")
+
+        then:
+        problems.assertFailureHasProblems(failure) {
+            withUniqueProblems("unknown property: Read system property 'CI' from 'SneakyPlugin'")
+        }
+
+        when:
+        problems.withDoNotFailOnProblems()
+        instantRun("thing")
+
+        then:
+        fixture.assertStateStored()
+        outputContains("apply CI = null")
+        outputContains("task CI = null")
+
+        when:
+        instantRun("thing", "-DCI=true")
+
+        then:
+        fixture.assertStateLoaded()
+        outputContains("task CI = true")
     }
 }

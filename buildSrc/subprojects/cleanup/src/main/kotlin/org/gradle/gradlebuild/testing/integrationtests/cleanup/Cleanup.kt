@@ -89,6 +89,17 @@ fun FileSystemOperations.removeTransformDir(cachesDir: File) {
     }
 }
 
+fun FileSystemOperations.removeJarsDir(cachesDir: File) {
+    if (cachesDir.isDirectory) {
+        cachesDir.listFiles()
+            .filter { it.isDirectory && it.name.startsWith("jars-") }
+            .forEach { jarsDir ->
+                println("Removing jars directory : $jarsDir")
+                delete { delete(jarsDir) }
+            }
+    }
+}
+
 
 private
 val scriptCacheDirNames =
