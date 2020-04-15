@@ -75,7 +75,7 @@ abstract class CleanUpCaches : DefaultTask() {
 
         // Remove work-in-progress decorated Jars cache
         // TODO - remove this once the format is stable
-        fileSystemOperations.removeJarsDir(workerDir.dir("caches").asFile)
+//        fileSystemOperations.removeJarsDir(workerDir.dir("caches").asFile)
 
         // Remove old distributions used by wrapper that we're unlikely to ever require again
         fileSystemOperations.removeOldVersionsFromDir(workerDir.dir("wrapper/dists"), expireIntegTestCache, "gradle-", "-bin")
